@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CSV Cleaner & Visualizer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    canvas {
+      max-height: 16rem !important; 
+    }
+    @media (min-width: 768px) {
+      canvas {
+        max-height: 17rem !important; 
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 p-4 md:p-8 min-h-screen">
+  <div class="max-w-7xl mx-auto bg-gray-800 p-6 md:p-8 rounded-lg shadow-lg">
+    <h1 class="text-2xl md:text-3xl font-semibold mb-6 text-center text-white">
+      <i class="fas fa-chart-line mr-2"></i> CSV Cleaner & Visualizer
+    </h1>
+    
+    <div class="mb-8 flex justify-center">
+      <label class="bg-blue-600 text-white px-4 py-2 md:px-6 md:py-3 rounded-lg cursor-pointer hover:bg-blue-500 transition-colors">
+        <i class="fas fa-upload mr-2"></i> Upload CSV File
+        <input type="file" id="csvFile" accept=".csv" class="hidden">
+      </label>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 mb-12">
+      <div>
+        <h2 class="text-lg md:text-xl font-semibold mb-4 text-white">
+          <i class="fas fa-table mr-2"></i> Original Data
+        </h2>
+        <div class="bg-gray-700 rounded-lg p-4 mb-6 h-48 md:h-64 flex justify-center items-center">
+          <p id="originalChartPlaceholder" class="text-gray-400 text-sm text-center">
+            The original dataset chart will be displayed here.
+          </p>
+          <canvas id="originalChart" class="hidden"></canvas>
+        </div>
+        <div class="overflow-x-auto">
+          <table id="originalTable" class="table-auto w-full text-sm bg-gray-700 rounded-lg overflow-hidden"></table>
+        </div>
+      </div>
+      <div>
+        <h2 class="text-lg md:text-xl font-semibold mb-4 text-white">
+          <i class="fas fa-filter mr-2"></i> Cleaned Data
+        </h2>
+        <div class="bg-gray-700 rounded-lg p-4 mb-6 h-48 md:h-64 flex justify-center items-center">
+          <p id="cleanedChartPlaceholder" class="text-gray-400 text-sm text-center">
+            The cleaned dataset chart will be displayed here.
+          </p>
+          <canvas id="cleanedChart" class="hidden"></canvas>
+        </div>
+        <div class="overflow-x-auto">
+          <table id="cleanedTable" class="table-auto w-full text-sm bg-gray-700 rounded-lg overflow-hidden"></table>
+        </div>
+      </div>
+    </div>
+
+    <div id="summary" class="bg-blue-900 border border-blue-800 p-4 md:p-6 rounded-lg shadow-lg">
+      <p class="text-gray-400 text-sm text-center">
+        The cleaning summary will be displayed here.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    let originalData = [];
+    let cleanedData = [];
+    let headers = [];
+    let removedRows = [];
+    let removedColumns = [];
+    let originalChartInstance = null;
+    let cleanedChartInstance = null;
+  
+    document.getElementById('csvFile').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+  
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          originalData = results.data;
+          headers = results.meta.fields;
+  
+          if (!headers || headers.length === 0) {
+            alert("No headers found. Check the CSV format.");
+            return;
+          }
+  
+          console.log("Original Data:", originalData);
+          console.log("Headers:", headers);
+          processData();
+        }
+      });
+    });
+  
+    function cleanData(data) {
+      const summary = { missingRows: 0, duplicateColumns: 0 };
+      removedRows = [];
+      removedColumns = [];
+
+      let cleaned = data.filter((row, index) => {
+        const hasMissing = Object.values(row).some(val => val === null || val === undefined || val === '');
+        if (hasMissing) {
+          summary.missingRows++;
+          removedRows.push(index);
+        }
+        return !hasMissing;
+      });
+
+      const columnContentMap = new Map();
+      const uniqueHeaders = [];
+
+      headers.forEach(header => {
+        const columnContent = cleaned.map(row => row[header]).join('|').trim();
+        if (!columnContentMap.has(columnContent)) {
+          columnContentMap.set(columnContent, header);
+          uniqueHeaders.push(header);
+        } else {
+          summary.duplicateColumns++;
+          removedColumns.push(header);
+        }
+      });
+
+      const finalCleaned = cleaned.map(row => {
+        const newRow = {};
+        uniqueHeaders.forEach(header => {
+          newRow[header] = row[header];
+        });
+        return newRow;
+      });
+
+      console.log("Cleaned Data:", finalCleaned);
+      console.log("Unique Headers:", uniqueHeaders);
+      console.log("Removed Rows (Indices):", removedRows);
+      console.log("Removed Columns (Names):", removedColumns);
+
+      return { cleaned: finalCleaned, summary, uniqueHeaders, removedRows, removedColumns };
+    }
+
+    function processData() {
+      const cleaningResult = cleanData(originalData);
+      cleanedData = cleaningResult.cleaned;
+      const summary = cleaningResult.summary;
+      const uniqueHeaders = cleaningResult.uniqueHeaders;
+      removedRows = cleaningResult.removedRows;
+      removedColumns = cleaningResult.removedColumns;
+
+      if (cleanedData.length === 0) {
+        console.warn("No data available in cleanedData. Check the cleaning process.");
+        document.getElementById('cleanedTable').innerHTML = '<p class="text-red-400 text-center py-4">No data to display after cleaning.</p>';
+      }
+      if (uniqueHeaders.length === 0) {
+        console.warn("No unique headers available. Check the cleaning process.");
+      }
+
+      visualizeDataset(originalData, 'originalChart', 'originalTable', 'Original', '#1E3A8A', headers, true);
+      visualizeDataset(cleanedData, 'cleanedChart', 'cleanedTable', 'Cleaned', '#3B82F6', uniqueHeaders, false);
+
+      displaySummary(summary, removedRows, removedColumns, cleanedData, uniqueHeaders);
+    }
+
+    function visualizeDataset(data, chartId, tableId, label, color, datasetHeaders, isOriginal) {
+      console.log(`Visualizing ${label} Dataset:`, { data, datasetHeaders });
+
+      if (!data || data.length === 0 || !datasetHeaders || datasetHeaders.length === 0) {
+        document.getElementById(tableId).innerHTML = '<p class="text-red-400 text-center py-4">No data or headers to display.</p>';
+        document.getElementById(`${chartId}Placeholder`).classList.remove('hidden');
+        document.getElementById(chartId).classList.add('hidden');
+        return;
+      }
+
+      document.getElementById(`${chartId}Placeholder`).classList.add('hidden');
+      document.getElementById(chartId).classList.remove('hidden');
+
+      const ctx = document.getElementById(chartId).getContext('2d');
+  
+      if (isOriginal && originalChartInstance) {
+        originalChartInstance.destroy();
+      }
+      if (!isOriginal && cleanedChartInstance) {
+        cleanedChartInstance.destroy();
+      }
+  
+      const isMobile = window.innerWidth < 768;
+      const newChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Rows', 'Columns'],
+          datasets: [{
+            label: `${label} Dataset`,
+            data: [data.length, datasetHeaders.length],
+            backgroundColor: color,
+            borderColor: color,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { color: '#D1D5DB', font: { size: isMobile ? 10 : 12 } },
+              grid: { color: '#4B5563' }
+            },
+            x: {
+              ticks: { color: '#D1D5DB', font: { size: isMobile ? 10 : 12 } },
+              grid: { display: false }
+            }
+          },
+          plugins: {
+            legend: {
+              display: true,
+              labels: { color: '#D1D5DB', font: { size: isMobile ? 10 : 12 } }
+            }
+          }
+        }
+      });
+  
+      if (isOriginal) {
+        originalChartInstance = newChart;
+      } else {
+         cleanedChartInstance = newChart;
+      }
+  
+      const table = document.getElementById(tableId);
+      table.innerHTML = '';
+      const thead = document.createElement('thead');
+      thead.className = 'bg-gray-600 text-gray-200';
+      const headerRow = document.createElement('tr');
+      datasetHeaders.forEach(header => {
+        const th = document.createElement('th');
+        th.className = 'px-4 py-2 md:px-6 md:py-4 text-left';
+        th.textContent = header;
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+  
+      const tbody = document.createElement('tbody');
+      data.slice(0, 5).forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = 'even:bg-gray-600';
+        datasetHeaders.forEach(header => {
+          const td = document.createElement('td');
+          td.className = 'border-t border-gray-600 px-4 py-2 md:px-6 md:py-4';
+          td.textContent = row[header] !== undefined && row[header] !== null ? row[header] : '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+    }
+
+    function displaySummary(summary, removedRows, removedColumns, cleanedData, uniqueHeaders) {
+      const originalRowCount = originalData.length;
+      const cleanedRowCount = cleanedData.length;
+      const originalColCount = headers.length;
+      const cleanedColCount = uniqueHeaders.length;
+      const rowRemovalPercentage = originalRowCount ? ((summary.missingRows / originalRowCount) * 100).toFixed(1) : 0;
+      const colRemovalPercentage = originalColCount ? ((summary.duplicateColumns / originalColCount) * 100).toFixed(1) : 0;
+
+      document.getElementById('summary').innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+          <div>
+            <h3 class="text-base md:text-lg font-semibold mb-4 text-white">
+              <i class="fas fa-info-circle mr-2"></i> Cleaning Summary
+            </h3>
+            <ul class="list-disc pl-6 text-gray-200 text-sm md:text-base">
+              <li><strong>Removed Rows (Index):</strong> ${
+                removedRows.length > 0 ? removedRows.join(', ') : 'None'
+              }<br><span class="text-xs md:text-sm text-gray-400">- Reason: Missing values</span></li>
+              <li><strong>Removed Columns (Name):</strong> ${
+                removedColumns.length > 0 ? removedColumns.join(', ') : 'None'
+              }<br><span class="text-xs md:text-sm text-gray-400">- Reason: Duplicated column</span></li>
+            </ul>
+          </div>
+          <div class="flex flex-col items-center md:items-start gap-3">
+            <div class="p-3 rounded-lg w-full md:w-auto">
+              <h4 class="text-xs md:text-sm font-semibold text-gray-200 mb-2">
+                <i class="fas fa-chart-bar mr-2"></i> Statistics
+              </h4>
+              <ul class="text-xs md:text-sm text-gray-300 space-y-1">
+                <li><strong>Rows:</strong> ${originalRowCount} (Original) → ${cleanedRowCount} (Cleaned) (${rowRemovalPercentage}% removed)</li>
+                <li><strong>Columns:</strong> ${originalColCount} (Original) → ${cleanedColCount} (Cleaned) (${colRemovalPercentage}% removed)</li>
+              </ul>
+            </div>
+            <div class="flex grid grid-cols-1 md:grid-cols-2 items-center w-full gap-4">
+              <button onclick="downloadSummary()" 
+                      class="bg-blue-600 text-white px-2.5 md:px-4 py-2 rounded-lg hover:bg-blue-500 transition-colors text-sm md:text-base w-auto">
+                <i class="fas fa-download mr-2"></i> Download Summary
+              </button>
+              <button onclick="downloadCleanedCSV()" 
+                      class="bg-blue-600 text-white px-2.5 md:px-4 py-2 rounded-lg hover:bg-blue-500 transition-colors text-sm md:text-base w-auto">
+                <i class="fas fa-file-csv mr-2"></i> Download Cleaned CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function downloadSummary() {
+      const originalRowCount = originalData.length;
+      const cleanedRowCount = cleanedData.length;
+      const originalColCount = headers.length;
+      const cleanedColCount = headers.length - removedColumns.length; // Unique headers
+      const rowRemovalPercentage = originalRowCount ? ((removedRows.length / originalRowCount) * 100).toFixed(1) : 0;
+      const colRemovalPercentage = originalColCount ? ((removedColumns.length / originalColCount) * 100).toFixed(1) : 0;
+
+      const summaryText = `
+        Cleaning Summary:
+        - Removed Rows (Index): ${removedRows.length > 0 ? removedRows.join(', ') : 'None'}
+          - Reason: Missing values
+        - Removed Columns (Name): ${removedColumns.length > 0 ? removedColumns.join(', ') : 'None'}
+          - Reason: Duplicated column
+
+        Statistics:
+        - Rows: ${originalRowCount} (Original) → ${cleanedRowCount} (Cleaned) (${rowRemovalPercentage}% removed)
+        - Columns: ${originalColCount} (Original) → ${cleanedColCount} (Cleaned) (${colRemovalPercentage}% removed)
+      `;
+      const blob = new Blob([summaryText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cleaning_summary.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function downloadCleanedCSV() {
+      if (!cleanedData.length || !headers.length) {
+        alert("No cleaned data available to download.");
+        return;
+      }
+      const csv = Papa.unparse(cleanedData, { columns: headers });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cleaned_data.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
